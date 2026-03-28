@@ -167,7 +167,8 @@ export class CheckpointService {
         conversationId: string,
         messageIndex: number,
         toolName: string,
-        phase: 'before' | 'after'
+        phase: 'before' | 'after',
+        toolNames?: readonly string[]
     ): Promise<CheckpointRecord | null> {
         if (!this.checkpointManager) {
             return null;
@@ -176,7 +177,8 @@ export class CheckpointService {
             conversationId,
             messageIndex,
             toolName,
-            phase
+            phase,
+            { toolNames }
         );
     }
 

@@ -927,7 +927,7 @@ const ja: LanguageMessages = {
                     },
                     tools: {
                         title: 'ツールバックアップ設定',
-                        description: '実行前後にバックアップが必要なツールを選択',
+                        description: 'ワークスペースを変更しうるツールのうち、実行前後にバックアップが必要なものを選択',
                         beforeLabel: '実行前',
                         afterLabel: '実行後',
                         empty: '利用可能なツールがありません'

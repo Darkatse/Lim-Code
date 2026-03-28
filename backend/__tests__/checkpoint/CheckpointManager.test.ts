@@ -64,7 +64,17 @@ async function createCheckpointManager(
     workspaceRoot: string,
     storageRoot: string,
     checkpoints: CheckpointRecord[],
-    customIgnorePatterns: string[] = []
+    checkpointConfigOverrides: Partial<{
+        enabled: boolean;
+        beforeTools: string[];
+        afterTools: string[];
+        messageCheckpoint: {
+            beforeMessages: string[];
+            afterMessages: string[];
+        };
+        maxCheckpoints: number;
+        customIgnorePatterns: string[];
+    }> = {}
 ): Promise<CheckpointManager> {
     (vscode.workspace as any).workspaceFolders = [
         {
@@ -87,18 +97,24 @@ async function createCheckpointManager(
     (vscode.commands.executeCommand as jest.Mock).mockResolvedValue(undefined);
 
     const metadata = { custom: { checkpoints: [...checkpoints] } };
+    const defaultMessageCheckpoint = {
+        beforeMessages: [],
+        afterMessages: []
+    };
+    const checkpointConfig = {
+        enabled: true,
+        beforeTools: [],
+        afterTools: [],
+        maxCheckpoints: -1,
+        customIgnorePatterns: [],
+        ...checkpointConfigOverrides
+    };
+    checkpointConfig.messageCheckpoint = {
+        ...defaultMessageCheckpoint,
+        ...(checkpointConfigOverrides.messageCheckpoint || {})
+    };
     const settingsManager = {
-        getCheckpointConfig: jest.fn().mockReturnValue({
-            enabled: true,
-            beforeTools: [],
-            afterTools: [],
-            messageCheckpoint: {
-                beforeMessages: [],
-                afterMessages: []
-            },
-            maxCheckpoints: -1,
-            customIgnorePatterns
-        })
+        getCheckpointConfig: jest.fn().mockReturnValue(checkpointConfig)
     };
     const conversationManager = {
         getMetadata: jest.fn().mockResolvedValue(metadata),
@@ -166,7 +182,7 @@ describe('CheckpointManager restore ignore semantics', () => {
                 workspaceRoot,
                 storageRoot,
                 [checkpoint],
-                ['ignored/']
+                { customIgnorePatterns: ['ignored/'] }
             );
 
             const result = await manager.restoreCheckpoint(conversationId, checkpointId);
@@ -222,7 +238,7 @@ describe('CheckpointManager restore ignore semantics', () => {
                 workspaceRoot,
                 storageRoot,
                 [checkpoint],
-                ['ignored/']
+                { customIgnorePatterns: ['ignored/'] }
             );
 
             const result = await manager.restoreCheckpoint(conversationId, checkpointId);
@@ -236,6 +252,76 @@ describe('CheckpointManager restore ignore semantics', () => {
             await expect(fs.readFile(path.join(workspaceRoot, 'visible.txt'), 'utf-8')).resolves.toBe(visibleContent);
             await expect(fs.readFile(path.join(workspaceRoot, 'ignored/secret.txt'), 'utf-8')).resolves.toBe('keep current ignored\n');
             await expect(pathExists(path.join(workspaceRoot, 'ignored/empty'))).resolves.toBe(false);
+        } finally {
+            await fs.rm(workspaceRoot, { recursive: true, force: true });
+            await fs.rm(storageRoot, { recursive: true, force: true });
+        }
+    });
+});
+
+describe('CheckpointManager trigger policy', () => {
+    beforeEach(() => {
+        jest.clearAllMocks();
+    });
+
+    test('skips configured read-only tools because they do not affect workspace state', async () => {
+        const workspaceRoot = await createTempDirectory('limcode-checkpoint-workspace-');
+        const storageRoot = await createTempDirectory('limcode-checkpoint-storage-');
+
+        try {
+            await writeFile(workspaceRoot, 'src/app.ts', 'console.log("hello");\n');
+
+            const manager = await createCheckpointManager(
+                workspaceRoot,
+                storageRoot,
+                [],
+                {
+                    beforeTools: ['read_file']
+                }
+            );
+
+            await expect(
+                manager.createCheckpoint('conv-read-only', 0, 'read_file', 'before')
+            ).resolves.toBeNull();
+        } finally {
+            await fs.rm(workspaceRoot, { recursive: true, force: true });
+            await fs.rm(storageRoot, { recursive: true, force: true });
+        }
+    });
+
+    test('tool_batch only creates a checkpoint when the batch includes a configured mutating tool', async () => {
+        const workspaceRoot = await createTempDirectory('limcode-checkpoint-workspace-');
+        const storageRoot = await createTempDirectory('limcode-checkpoint-storage-');
+
+        try {
+            await writeFile(workspaceRoot, 'src/app.ts', 'console.log("hello");\n');
+
+            const manager = await createCheckpointManager(
+                workspaceRoot,
+                storageRoot,
+                [],
+                {
+                    beforeTools: ['read_file', 'write_file']
+                }
+            );
+
+            await expect(
+                manager.createCheckpoint('conv-batch', 0, 'tool_batch', 'before', {
+                    toolNames: ['read_file', 'search_in_files']
+                })
+            ).resolves.toBeNull();
+
+            const checkpoint = await manager.createCheckpoint('conv-batch', 0, 'tool_batch', 'before', {
+                toolNames: ['read_file', 'write_file']
+            });
+
+            expect(checkpoint).not.toBeNull();
+            expect(checkpoint).toMatchObject({
+                toolName: 'tool_batch',
+                phase: 'before',
+                type: 'full',
+                fileCount: 1
+            });
         } finally {
             await fs.rm(workspaceRoot, { recursive: true, force: true });
             await fs.rm(storageRoot, { recursive: true, force: true });

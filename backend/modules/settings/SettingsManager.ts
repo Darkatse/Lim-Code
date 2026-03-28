@@ -75,6 +75,7 @@ import {
     DEFAULT_HISTORY_SEARCH_CONFIG,
     getDefaultExecuteCommandConfig
 } from './types';
+import { selectCheckpointTriggerTools } from '../checkpoint/CheckpointTriggerPolicy';
 
 /**
  * 设置存储接口
@@ -791,7 +792,11 @@ export class SettingsManager {
      */
     shouldCreateBeforeCheckpoint(toolName: string): boolean {
         const config = this.getCheckpointConfig();
-        return config.enabled && config.beforeTools.includes(toolName);
+        if (!config.enabled) {
+            return false;
+        }
+
+        return selectCheckpointTriggerTools(config, 'before', [toolName]).length > 0;
     }
     
     /**
@@ -799,7 +804,11 @@ export class SettingsManager {
      */
     shouldCreateAfterCheckpoint(toolName: string): boolean {
         const config = this.getCheckpointConfig();
-        return config.enabled && config.afterTools.includes(toolName);
+        if (!config.enabled) {
+            return false;
+        }
+
+        return selectCheckpointTriggerTools(config, 'after', [toolName]).length > 0;
     }
     
     /**

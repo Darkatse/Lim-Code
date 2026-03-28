@@ -927,7 +927,7 @@ const en: LanguageMessages = {
                     },
                     tools: {
                         title: 'Tool Backup Configuration',
-                        description: 'Select tools that need backups before and after execution',
+                        description: 'Select workspace-mutating tools that need backups before and after execution',
                         beforeLabel: 'Before Execution',
                         afterLabel: 'After Execution',
                         empty: 'No tools available'

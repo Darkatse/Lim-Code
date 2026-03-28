@@ -188,6 +188,9 @@ export interface ToolInfo {
     
     /** 工具分类（如 file, search, terminal） */
     category?: string;
+
+    /** 是否可能触发工作区 checkpoint */
+    checkpointRelevant?: boolean;
 }
 
 /**

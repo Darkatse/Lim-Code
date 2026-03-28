@@ -10,6 +10,7 @@ import type { ToolRegistry } from '../../../tools/ToolRegistry';
 import { TokenCountService } from '../../channel/TokenCountService';
 import { getPromptManager } from '../../prompt/PromptManager';
 import type { ConversationManager } from '../../conversation/ConversationManager';
+import { isCheckpointRelevantTool } from '../../checkpoint/CheckpointTriggerPolicy';
 import type {
     GetSettingsRequest,
     GetSettingsResponse,
@@ -298,7 +299,8 @@ export class SettingsHandler {
                 name: tool.declaration.name,
                 description: tool.declaration.description,
                 enabled: this.settingsManager.isToolEnabled(tool.declaration.name),
-                category: tool.declaration.category
+                category: tool.declaration.category,
+                checkpointRelevant: isCheckpointRelevantTool(tool.declaration.name)
             }));
             
             return {

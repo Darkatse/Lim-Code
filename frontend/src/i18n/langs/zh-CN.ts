@@ -927,7 +927,7 @@ const zhCN: LanguageMessages = {
                     },
                     tools: {
                         title: '工具备份配置',
-                        description: '选择需要在执行前后创建备份的工具',
+                        description: '选择可能修改工作区、需要在执行前后创建备份的工具',
                         beforeLabel: '执行前',
                         afterLabel: '执行后',
                         empty: '暂无可用的工具'

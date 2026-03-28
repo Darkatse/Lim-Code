@@ -22,6 +22,7 @@ import type { SettingsManager } from '../settings/SettingsManager';
 import type { ConversationManager } from '../conversation/ConversationManager';
 import { getDiffManager } from '../../tools/file/diffManager';
 import { CheckpointIgnoreResolver, normalizeCheckpointPath } from './CheckpointIgnoreResolver';
+import { selectCheckpointTriggerTools } from './CheckpointTriggerPolicy';
 
 /**
  * 文件变更记录
@@ -69,6 +70,10 @@ export interface CheckpointRecord {
     fileHashes?: Record<string, string>;
     /** 空目录列表（相对路径） */
     emptyDirs?: string[];
+}
+
+interface CreateCheckpointOptions {
+    toolNames?: readonly string[];
 }
 
 /**
@@ -150,6 +155,30 @@ export class CheckpointManager {
     ): Promise<void> {
         await this.createIgnoreResolver(rootDir, includeCustomPatterns).removeEmptyDirectories();
     }
+
+    private shouldCreateCheckpoint(
+        toolName: string,
+        phase: 'before' | 'after',
+        options: CreateCheckpointOptions = {}
+    ): boolean {
+        const config = this.settingsManager.getCheckpointConfig();
+        if (!config.enabled) {
+            return false;
+        }
+
+        if (toolName === 'user_message' || toolName === 'model_message') {
+            const messageType = toolName === 'user_message' ? 'user' : 'model';
+            return phase === 'before'
+                ? (config.messageCheckpoint?.beforeMessages?.includes(messageType) ?? false)
+                : (config.messageCheckpoint?.afterMessages?.includes(messageType) ?? false);
+        }
+
+        return selectCheckpointTriggerTools(
+            config,
+            phase,
+            options.toolNames ?? [toolName]
+        ).length > 0;
+    }
     
     /**
      * 创建检查点
@@ -164,41 +193,10 @@ export class CheckpointManager {
         conversationId: string,
         messageIndex: number,
         toolName: string,
-        phase: 'before' | 'after'
+        phase: 'before' | 'after',
+        options: CreateCheckpointOptions = {}
     ): Promise<CheckpointRecord | null> {
-        // 检查是否应该创建检查点
-        const config = this.settingsManager.getCheckpointConfig();
-        if (!config.enabled) {
-            return null;
-        }
-        
-        let shouldCreate = false;
-        
-        // 检查是否是消息类型
-        if (toolName === 'user_message' || toolName === 'model_message') {
-            // 使用消息类型配置
-            const messageType = toolName === 'user_message' ? 'user' : 'model';
-            if (phase === 'before') {
-                shouldCreate = config.messageCheckpoint?.beforeMessages?.includes(messageType) ?? false;
-            } else {
-                shouldCreate = config.messageCheckpoint?.afterMessages?.includes(messageType) ?? false;
-            }
-        } else if (toolName === 'tool_batch') {
-            // 批量工具：只要配置了任何工具的检查点，就创建
-            // tool_batch 表示多个工具调用被批量处理
-            if (phase === 'before') {
-                shouldCreate = config.beforeTools.length > 0;
-            } else {
-                shouldCreate = config.afterTools.length > 0;
-            }
-        } else {
-            // 使用工具配置
-            shouldCreate = phase === 'before'
-                ? config.beforeTools.includes(toolName)
-                : config.afterTools.includes(toolName);
-        }
-            
-        if (!shouldCreate) {
+        if (!this.shouldCreateCheckpoint(toolName, phase, options)) {
             return null;
         }
         

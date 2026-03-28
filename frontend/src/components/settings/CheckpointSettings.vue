@@ -37,6 +37,7 @@ interface ToolInfo {
   name: string
   description: string
   category?: string
+  checkpointRelevant?: boolean
 }
 
 // 对话检查点信息
@@ -94,8 +95,8 @@ const isDeletingConversation = ref<string | null>(null)
 const deleteConfirmConversation = ref<ConversationWithCheckpoints | null>(null)
 const showDeleteConfirm = ref(false)
 
-// 直接使用所有工具（用户可以自由选择哪些需要备份）
-const displayTools = computed(() => allTools.value)
+// 只展示可能触发工作区变更 checkpoint 的工具，和后端运行时语义保持一致。
+const displayTools = computed(() => allTools.value.filter(tool => tool.checkpointRelevant))
 
 // 加载配置
 async function loadConfig() {

@@ -44,6 +44,11 @@ export interface ToolExecutionFullResult {
     multimodalAttachments?: ContentPart[];
 }
 
+interface PreparedToolCall {
+    call: FunctionCallInfo;
+    rejectionReason: string | null;
+}
+
 /**
  * 工具执行服务
  *
@@ -123,9 +128,8 @@ export class ToolExecutionService {
      * 执行函数调用并返回完整结果
      *
      * 检查点策略：
-     * - 在所有工具执行前创建一个检查点（使用 'tool_batch' 作为 toolName）
-     * - 在所有工具执行后创建一个检查点
-     * - 这样一条消息无论有多少个工具调用，只会创建一对检查点
+     * - 仅当本批次包含可执行的工作区变更工具时，才创建 before/after checkpoint
+     * - 一条消息无论有多少个工具调用，最多只会创建一对 checkpoint
      *
      * 多模态数据处理：
      * - 对于 function_call 模式：使用 functionResponse.parts 包含多模态数据
@@ -156,6 +160,7 @@ export class ToolExecutionService {
 
         // 处理 subagents 调用数量限制
         const processedCalls = this.applySubagentsLimit(calls);
+        const preparedAllowedCalls = this.prepareAllowedCalls(processedCalls.allowed);
 
         // 确定检查点的工具名称
         // 如果只有一个工具调用，使用该工具名称
@@ -163,16 +168,15 @@ export class ToolExecutionService {
         const toolNameForCheckpoint = processedCalls.allowed.length === 1 ? processedCalls.allowed[0].name : 'tool_batch';
 
         // 在所有工具执行前创建一个检查点
-        if (this.checkpointService && conversationId !== undefined && messageIndex !== undefined) {
-            const beforeCheckpoint = await this.checkpointService.createToolExecutionCheckpoint(
-                conversationId,
-                messageIndex,
-                toolNameForCheckpoint,
-                'before'
-            );
-            if (beforeCheckpoint) {
-                checkpoints.push(beforeCheckpoint);
-            }
+        const beforeCheckpoint = await this.createExecutionBatchCheckpoint(
+            conversationId,
+            messageIndex,
+            toolNameForCheckpoint,
+            'before',
+            preparedAllowedCalls
+        );
+        if (beforeCheckpoint) {
+            checkpoints.push(beforeCheckpoint);
         }
 
         // 处理被限制的 subagents 调用（直接返回拒绝结果）
@@ -200,14 +204,12 @@ export class ToolExecutionService {
         }
 
         // 执行允许的工具
-        for (const call of processedCalls.allowed) {
+        for (const { call, rejectionReason } of preparedAllowedCalls) {
             // 检查是否已取消
             if (abortSignal?.aborted) {
                 break;
             }
 
-            // 执行前强制过滤（模式 toolPolicy / 全局 toolsEnabled / Plan write_file 路径限制）
-            const rejectionReason = this.getToolRejectionReason(call.name, call.args);
             if (rejectionReason) {
                 const response: Record<string, unknown> = {
                     success: false,
@@ -289,16 +291,15 @@ export class ToolExecutionService {
         }
 
         // 在所有工具执行后创建一个检查点
-        if (this.checkpointService && conversationId !== undefined && messageIndex !== undefined) {
-            const afterCheckpoint = await this.checkpointService.createToolExecutionCheckpoint(
-                conversationId,
-                messageIndex,
-                toolNameForCheckpoint,
-                'after'
-            );
-            if (afterCheckpoint) {
-                checkpoints.push(afterCheckpoint);
-            }
+        const afterCheckpoint = await this.createExecutionBatchCheckpoint(
+            conversationId,
+            messageIndex,
+            toolNameForCheckpoint,
+            'after',
+            preparedAllowedCalls
+        );
+        if (afterCheckpoint) {
+            checkpoints.push(afterCheckpoint);
         }
 
         return {
@@ -336,20 +337,20 @@ export class ToolExecutionService {
 
         // 处理 subagents 调用数量限制
         const processedCalls = this.applySubagentsLimit(calls);
+        const preparedAllowedCalls = this.prepareAllowedCalls(processedCalls.allowed);
 
         const toolNameForCheckpoint = processedCalls.allowed.length === 1 ? processedCalls.allowed[0].name : 'tool_batch';
 
         // 在所有工具执行前创建一个检查点
-        if (this.checkpointService && conversationId !== undefined && messageIndex !== undefined) {
-            const beforeCheckpoint = await this.checkpointService.createToolExecutionCheckpoint(
-                conversationId,
-                messageIndex,
-                toolNameForCheckpoint,
-                'before'
-            );
-            if (beforeCheckpoint) {
-                checkpoints.push(beforeCheckpoint);
-            }
+        const beforeCheckpoint = await this.createExecutionBatchCheckpoint(
+            conversationId,
+            messageIndex,
+            toolNameForCheckpoint,
+            'before',
+            preparedAllowedCalls
+        );
+        if (beforeCheckpoint) {
+            checkpoints.push(beforeCheckpoint);
         }
 
         // 处理被限制的 subagents 调用（直接返回拒绝结果）
@@ -381,13 +382,11 @@ export class ToolExecutionService {
         }
 
         // 执行允许的工具
-        for (const call of processedCalls.allowed) {
+        for (const { call, rejectionReason } of preparedAllowedCalls) {
             if (abortSignal?.aborted) {
                 break;
             }
 
-            // 执行前强制过滤（模式 toolPolicy / 全局 toolsEnabled / Plan write_file 路径限制）
-            const rejectionReason = this.getToolRejectionReason(call.name, call.args);
             if (rejectionReason) {
                 const response: Record<string, unknown> = {
                     success: false,
@@ -472,16 +471,15 @@ export class ToolExecutionService {
         }
 
         // 在所有工具执行后创建一个检查点
-        if (this.checkpointService && conversationId !== undefined && messageIndex !== undefined) {
-            const afterCheckpoint = await this.checkpointService.createToolExecutionCheckpoint(
-                conversationId,
-                messageIndex,
-                toolNameForCheckpoint,
-                'after'
-            );
-            if (afterCheckpoint) {
-                checkpoints.push(afterCheckpoint);
-            }
+        const afterCheckpoint = await this.createExecutionBatchCheckpoint(
+            conversationId,
+            messageIndex,
+            toolNameForCheckpoint,
+            'after',
+            preparedAllowedCalls
+        );
+        if (afterCheckpoint) {
+            checkpoints.push(afterCheckpoint);
         }
 
         return {
@@ -806,6 +804,43 @@ export class ToolExecutionService {
         }
         
         return { allowed, rejected };
+    }
+
+    private prepareAllowedCalls(calls: FunctionCallInfo[]): PreparedToolCall[] {
+        return calls.map(call => ({
+            call,
+            rejectionReason: this.getToolRejectionReason(call.name, call.args)
+        }));
+    }
+
+    private async createExecutionBatchCheckpoint(
+        conversationId: string | undefined,
+        messageIndex: number | undefined,
+        toolName: string,
+        phase: 'before' | 'after',
+        calls: PreparedToolCall[]
+    ): Promise<CheckpointRecord | null> {
+        if (!this.checkpointService || conversationId === undefined || messageIndex === undefined) {
+            return null;
+        }
+
+        const toolNames = [...new Set(
+            calls
+                .filter(({ rejectionReason }) => rejectionReason === null)
+                .map(({ call }) => call.name)
+        )];
+
+        if (toolNames.length === 0) {
+            return null;
+        }
+
+        return await this.checkpointService.createToolExecutionCheckpoint(
+            conversationId,
+            messageIndex,
+            toolName,
+            phase,
+            toolNames
+        );
     }
 
     /**
